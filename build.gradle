@@ -1,0 +1,149 @@
+plugins {
+  id 'maven-publish'
+  id 'signing'
+  id 'java-library'
+  id 'eclipse'
+  id 'java'
+}
+
+apply plugin: 'eclipse'
+apply plugin: 'java'
+
+def oss84Group = 'io.oss84'
+def oss84Name = 'Library Template'
+def oss84JarName = 'librarytemplate'
+def oss84Description = 'This does nothing'
+def oss84GithubBase = 'https://github.com/oss84-io/library-template'
+def oss84Version = '0.0.0-SNAPSHOT'
+
+// configure all java components to be published
+publishing {
+  publications {
+    maven(MavenPublication) {
+      from(components.java)
+    }
+  }
+  repositories {
+    maven {
+      name = 'OSSRH'
+      def releasesURL = 'https://oss.sonatype.org/service/local/staging/deploy/maven2/'
+      def snapshotsURL = 'https://oss.sonatype.org/content/repositories/snapshots'
+      url = oss84Version.endsWith('SNAPSHOT') ? snapshotsURL : releasesURL
+
+      credentials {
+        def ossUsername = project.hasProperty('ioOSS84OSSUsername') ? ioOSS84OSSUsername : 'Unknown user'
+        def ossPassword = project.hasProperty('ioOSS84OSSPassword') ? ioOSS84OSSPassword : 'Unknown password'
+        username = ossUsername
+        password = ossPassword
+      }
+    }
+  }
+}
+
+// ossrh requires javadoc and sources https://central.sonatype.org/pages/requirements.html
+java {
+  withJavadocJar()
+  withSourcesJar()
+}
+
+jar {
+  archiveBaseName = oss84JarName
+  archiveVersion = oss84Version
+  enabled = true
+}
+
+// ossrh requries signing https://central.sonatype.org/pages/requirements.html
+// https://docs.gradle.org/current/userguide/signing_plugin.html
+// this only configures signing if the key is found
+// For signing you need to make signingKey and signingPassword available properties See
+// https://docs.gradle.org/current/userguide/build_environment.html#sec:project_properties
+// The following makes the key available via the Gradle Property signingKey
+// export ORG_GRADLE_PROJECT_signingKey=`cat test-private.pgp`
+// export ORG_GRADLE_PROJECT_signingPassword='password'
+// After making the Gradle properties above available, you can try signing using
+// gradle signMavenPublication
+//
+// NOTE: If you are using the legacy publishing you need to sign using the info at
+// https://docs.gradle.org/current/userguide/signing_plugin.html#sec:signing_pom_files
+def hasSigningKey = project.hasProperty('signing.keyId') || project.findProperty('signingKey')
+
+if(hasSigningKey) {
+  sign(project)
+}
+
+void sign(Project project) {
+  project.signing {
+    required { project.gradle.taskGraph.hasTask('publish') }
+    def signingKeyId = project.findProperty('signingKeyId')
+    def signingKey = project.findProperty('signingKey')
+    def signingPassword = project.findProperty('signingPassword')
+
+    if (signingKeyId) {
+      useInMemoryPgpKeys(signingKeyId, signingKey, signingPassword)
+    } else if (signingKey) {
+      useInMemoryPgpKeys(signingKey, signingPassword)
+    }
+
+    sign publishing.publications.maven
+  }
+}
+
+// customize the pom so it complies to Maven central requirements
+// https://central.sonatype.org/pages/requirements.html
+// https://docs.gradle.org/current/userguide/maven_plugin.html#sec:maven_pom_generation
+project.plugins.withType(MavenPublishPlugin).all {
+  PublishingExtension publishing = project.extensions.getByType(PublishingExtension)
+
+  publishing.publications.withType(MavenPublication).all { mavenPublication ->
+    mavenPublication.pom {
+      name = oss84Name
+      packaging = 'jar'
+      description = oss84Description
+      groupId = oss84Group
+      artifactId = oss84JarName
+      version = oss84Version
+      url = oss84GithubBase
+
+      scm {
+        connection = 'scm:git:' + oss84GithubBase + '.git'
+        developerConnection = 'scm:git:' + oss84GithubBase + '.git'
+        url = oss84GithubBase
+      }
+
+      licenses {
+        license {
+          name = 'The Apache License, Version 2.0'
+          url = 'http://www.apache.org/licenses/LICENSE-2.0.txt'
+        }
+      }
+
+      developers {
+        developer {
+          id = 'tyler'
+          name = 'Tyler'
+          email = 'Tyler@oss84.io'
+        }
+      }
+    }
+  }
+}
+
+sourceCompatibility = 11.0
+
+repositories {
+  jcenter()
+  mavenCentral()
+  maven { url 'https://plugins.gradle.org/m2/' }
+  maven { url 'https://oss.sonatype.org/content/repositories/snapshots/' }
+}
+
+configurations.all {
+  exclude module: 'slf4j-jdk14'
+}
+
+dependencies {
+}
+
+test {
+  useJUnitPlatform()
+}
